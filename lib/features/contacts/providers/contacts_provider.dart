@@ -60,6 +60,9 @@ class ContactsActions {
   });
 
   /// Aggiungi contatto
+  /// 
+  /// Orchestrazione: gestisce la logica "primary" prima di chiamare il service.
+  /// Se isPrimary=true, rimuove il flag dagli altri contatti prima di aggiungere.
   Future<EmergencyContactModel?> addContact({
     required String name,
     required String phoneNumber,
@@ -67,6 +70,11 @@ class ContactsActions {
     bool isPrimary = false,
   }) async {
     if (userId == null) return null;
+    
+    // Logica di business: se è primary, rimuovi flag dagli altri
+    if (isPrimary) {
+      await contactsService.removePrimaryFromOthers(userId!);
+    }
     
     return contactsService.addContact(
       userId: userId!,
@@ -78,6 +86,8 @@ class ContactsActions {
   }
 
   /// Aggiorna contatto
+  /// 
+  /// Orchestrazione: gestisce la logica "primary" prima di chiamare il service.
   Future<void> updateContact(
     String contactId, {
     String? name,
@@ -85,6 +95,14 @@ class ContactsActions {
     String? email,
     bool? isPrimary,
   }) async {
+    // Logica di business: se stiamo impostando come primary, rimuovi flag dagli altri
+    if (isPrimary == true) {
+      final contact = await contactsService.getContact(contactId);
+      if (contact != null) {
+        await contactsService.removePrimaryFromOthers(contact.userId);
+      }
+    }
+    
     await contactsService.updateContact(
       contactId,
       name: name,
@@ -100,8 +118,14 @@ class ContactsActions {
   }
 
   /// Imposta come primario
+  /// 
+  /// Orchestrazione: rimuove il flag primary dagli altri prima di impostarlo.
   Future<void> setPrimary(String contactId) async {
-    await contactsService.updateContact(contactId, isPrimary: true);
+    final contact = await contactsService.getContact(contactId);
+    if (contact != null) {
+      await contactsService.removePrimaryFromOthers(contact.userId);
+      await contactsService.updateContact(contactId, isPrimary: true);
+    }
   }
 }
 

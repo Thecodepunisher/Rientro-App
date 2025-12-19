@@ -76,6 +76,11 @@ class RientroActions {
   });
 
   /// Crea un nuovo rientro
+  /// 
+  /// Orchestrazione: coordina location, device status e creazione rientro.
+  /// 
+  /// PUNTO FRAGILE: Aggiorna device status dopo la creazione. Se la creazione fallisce,
+  /// non c'è rollback. In produzione, considera una transazione o un retry.
   Future<RientroModel?> startRientro({
     required int durationMinutes,
     required List<String> contactIds,
@@ -102,7 +107,9 @@ class RientroActions {
       silentMode: silentMode,
     );
 
-    // Aggiorna stato dispositivo
+    // Aggiorna stato dispositivo dopo creazione
+    // NOTA: Se questo fallisce, il rientro esiste già ma senza device status.
+    // In produzione, considera un retry o un batch write.
     if (deviceStatus.batteryLevel > 0) {
       await rientroService.updateDeviceStatus(
         rientro.id,
@@ -115,6 +122,12 @@ class RientroActions {
   }
 
   /// Conferma check-in (sto bene)
+  /// 
+  /// Orchestrazione: aggiorna ping/posizione e stato dispositivo.
+  /// 
+  /// OTTIMIZZAZIONE: Device status viene aggiornato ad ogni check-in.
+  /// In produzione, considera di aggiornarlo solo se cambiato significativamente
+  /// o con una frequenza limitata per ridurre scritture Firestore.
   Future<void> confirmCheckIn(String rientroId) async {
     final location = await locationService.getCurrentGeoPoint();
     await rientroService.updatePing(rientroId, location: location);
@@ -137,9 +150,16 @@ class RientroActions {
   }
 
   /// Attiva SOS
+  /// 
+  /// Orchestrazione: ottiene posizione e aggiorna rientro con status emergency.
+  /// Il service riceve escalationLevel e status già decisi dal provider.
   Future<void> activateSOS(String rientroId) async {
     final location = await locationService.getCurrentGeoPoint();
-    await rientroService.activateSOS(rientroId, location: location);
+    await rientroService.activateSOS(
+      rientroId,
+      location: location,
+      escalationLevel: AppConstants.escalationLevelSOS,
+    );
   }
 
   /// Completa rientro (sono arrivato)
@@ -153,6 +173,13 @@ class RientroActions {
   }
 
   /// Crea SOS immediato (senza rientro attivo)
+  /// 
+  /// ASSUNZIONE IMPLICITA: Usa durata fittizia di 60 minuti perché il rientro
+  /// viene creato solo per attivare l'emergenza, non per monitorare un viaggio reale.
+  /// 
+  /// PUNTO FRAGILE: Se in futuro vogliamo tracciare anche i SOS come rientri completi,
+  /// questa durata fittizia potrebbe causare problemi. Considera di rendere questo
+  /// parametro configurabile o di usare un tipo di rientro diverso.
   Future<RientroModel?> createSOSRientro(List<String> contactIds) async {
     if (userId == null) return null;
     if (contactIds.isEmpty) return null;
@@ -160,15 +187,20 @@ class RientroActions {
     final location = await locationService.getCurrentGeoPoint();
 
     // Crea rientro in stato emergenza
+    // NOTA: durata fittizia necessaria per struttura dati, ma non usata per SOS
     final rientro = await rientroService.createRientro(
       userId: userId!,
-      durationMinutes: 60, // durata fittizia
+      durationMinutes: 60, // durata fittizia per SOS
       contactIds: contactIds,
       startLocation: location,
     );
 
-    // Attiva immediatamente SOS
-    await rientroService.activateSOS(rientro.id, location: location);
+    // Attiva immediatamente SOS con escalation level appropriato
+    await rientroService.activateSOS(
+      rientro.id,
+      location: location,
+      escalationLevel: AppConstants.escalationLevelSOS,
+    );
 
     return rientro;
   }

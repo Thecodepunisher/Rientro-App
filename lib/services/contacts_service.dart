@@ -12,6 +12,10 @@ class ContactsService {
       _firestore.collection(AppConstants.contactsCollection);
 
   /// Aggiungi contatto di emergenza
+  /// 
+  /// NOTA: La gestione del flag "primary" (rimozione dagli altri contatti)
+  /// è stata spostata nel provider per mantenere il service privo di logica di business.
+  /// Se isPrimary=true, il chiamante deve prima chiamare removePrimaryFromOthers().
   Future<EmergencyContactModel> addContact({
     required String userId,
     required String name,
@@ -20,11 +24,6 @@ class ContactsService {
     bool isPrimary = false,
   }) async {
     final id = _uuid.v4();
-    
-    // Se è primary, rimuovi flag dagli altri
-    if (isPrimary) {
-      await _removePrimaryFlag(userId);
-    }
     
     final contact = createEmergencyContact(
       id: id,
@@ -37,6 +36,13 @@ class ContactsService {
 
     await _contactsRef.doc(id).set(contact.toFirestore());
     return contact;
+  }
+  
+  /// Rimuovi flag primary da tutti i contatti dell'utente
+  /// 
+  /// Metodo pubblico per permettere al provider di gestire la logica "primary".
+  Future<void> removePrimaryFromOthers(String userId) async {
+    await _removePrimaryFlag(userId);
   }
 
   /// Ottieni tutti i contatti dell'utente
@@ -72,6 +78,9 @@ class ContactsService {
   }
 
   /// Aggiorna contatto
+  /// 
+  /// NOTA: Se isPrimary=true, il chiamante deve prima chiamare removePrimaryFromOthers()
+  /// per mantenere la logica di business nel provider.
   Future<void> updateContact(
     String contactId, {
     String? name,
@@ -83,17 +92,7 @@ class ContactsService {
     if (name != null) data['name'] = name;
     if (phoneNumber != null) data['phoneNumber'] = phoneNumber;
     if (email != null) data['email'] = email;
-    
-    if (isPrimary == true) {
-      // Prima rimuovi il flag dagli altri
-      final contact = await getContact(contactId);
-      if (contact != null) {
-        await _removePrimaryFlag(contact.userId);
-      }
-      data['isPrimary'] = true;
-    } else if (isPrimary == false) {
-      data['isPrimary'] = false;
-    }
+    if (isPrimary != null) data['isPrimary'] = isPrimary;
 
     if (data.isNotEmpty) {
       await _contactsRef.doc(contactId).update(data);

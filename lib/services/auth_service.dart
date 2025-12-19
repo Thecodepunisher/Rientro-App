@@ -91,6 +91,12 @@ class AuthService {
   }
 
   /// Elimina account
+  /// 
+  /// Orchestrazione: elimina tutti i dati utente da Firestore e poi l'account Firebase.
+  /// 
+  /// PUNTO FRAGILE: Se _deleteUserData fallisce, l'account Firebase rimane.
+  /// Se delete() fallisce, i dati Firestore sono già stati eliminati.
+  /// In produzione, considera una transazione o un retry con rollback.
   Future<void> deleteAccount() async {
     final userId = currentUserId;
     if (userId == null) return;
