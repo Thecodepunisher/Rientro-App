@@ -116,6 +116,12 @@ class RientroService {
   }
 
   /// Aggiorna stato batteria/connessione
+  /// 
+  /// NOTA: Questo metodo aggiorna SOLO i dati. La decisione di quando aggiornare
+  /// (frequenza, threshold, ecc.) è responsabilità del provider.
+  /// 
+  /// PUNTO FRAGILE: Se chiamato troppo spesso, può generare molte scritture Firestore.
+  /// Il provider dovrebbe limitare la frequenza o aggiornare solo se i valori cambiano significativamente.
   Future<void> updateDeviceStatus(
     String rientroId, {
     int? batteryLevel,
@@ -144,10 +150,18 @@ class RientroService {
   }
 
   /// Attiva SOS
-  Future<void> activateSOS(String rientroId, {GeoPoint? location}) async {
+  /// 
+  /// NOTA: Questo metodo aggiorna SOLO i dati del rientro.
+  /// Il provider che chiama questo metodo deve decidere escalationLevel e status.
+  /// Questo mantiene il service privo di logica di business.
+  Future<void> activateSOS(
+    String rientroId, {
+    GeoPoint? location,
+    int escalationLevel = AppConstants.escalationLevelSOS,
+  }) async {
     final data = <String, dynamic>{
       'status': RientroStatus.emergency.value,
-      'escalationLevel': AppConstants.escalationLevelSOS,
+      'escalationLevel': escalationLevel,
     };
     
     if (location != null) {
@@ -174,13 +188,29 @@ class RientroService {
   }
 
   /// Aggiorna livello escalation
+  /// 
+  /// NOTA: Questo metodo aggiorna SOLO il livello escalation.
+  /// La decisione di cambiare lo status in base al livello deve essere presa
+  /// dal provider che chiama questo metodo. Il service non deve contenere
+  /// logica di business.
   Future<void> updateEscalationLevel(String rientroId, int level) async {
     await _rientriRef.doc(rientroId).update({
       'escalationLevel': level,
-      if (level >= AppConstants.escalationLevel3)
-        'status': RientroStatus.emergency.value,
-      if (level == AppConstants.escalationLevel2)
-        'status': RientroStatus.late.value,
+    });
+  }
+  
+  /// Aggiorna escalation level e status insieme
+  /// 
+  /// Usa questo metodo quando devi aggiornare entrambi in modo atomico.
+  /// Il provider decide quale status associare al livello escalation.
+  Future<void> updateEscalationLevelAndStatus(
+    String rientroId,
+    int level,
+    RientroStatus status,
+  ) async {
+    await _rientriRef.doc(rientroId).update({
+      'escalationLevel': level,
+      'status': status.value,
     });
   }
 
