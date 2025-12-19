@@ -1,0 +1,16 @@
+# Placeholder for custom fonts
+# 
+# Add SF Pro Display and SF Pro Text fonts here:
+# - SF-Pro-Display-Regular.otf
+# - SF-Pro-Display-Medium.otf
+# - SF-Pro-Display-Semibold.otf
+# - SF-Pro-Display-Bold.otf
+# - SF-Pro-Text-Regular.otf
+# - SF-Pro-Text-Medium.otf
+# - SF-Pro-Text-Semibold.otf
+#
+# Note: SF Pro fonts require a license from Apple.
+# For development, you can use system fonts or alternatives like:
+# - Inter (free, similar to SF Pro)
+# - Outfit (free, modern)
+

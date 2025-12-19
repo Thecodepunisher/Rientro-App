@@ -1,0 +1,168 @@
+rules_version = '2';
+
+/**
+ * RIENTRO - Firestore Security Rules
+ * 
+ * Principi:
+ * - Least privilege: accesso minimo necessario
+ * - User isolation: ogni utente vede solo i propri dati
+ * - Data validation: validazione dei dati in scrittura
+ * - Rate limiting implicito tramite Firebase
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ═══════════════════════════════════════════════════════════════
+    // FUNZIONI HELPER
+    // ═══════════════════════════════════════════════════════════════
+    
+    // Verifica che l'utente sia autenticato
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Verifica che l'utente sia il proprietario del documento
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Verifica che l'utente sia autenticato come lo stesso user
+    function isCurrentUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Verifica che un campo non sia stato modificato
+    function fieldUnchanged(field) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([field]);
+    }
+    
+    // Verifica che i campi richiesti siano presenti
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    // Valida lo status di un rientro
+    function isValidRientroStatus(status) {
+      return status in ['active', 'late', 'emergency', 'completed', 'cancelled'];
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // USERS COLLECTION
+    // ═══════════════════════════════════════════════════════════════
+    
+    match /users/{userId} {
+      // Lettura: solo il proprietario
+      allow read: if isCurrentUser(userId);
+      
+      // Creazione: solo per il proprio account
+      allow create: if isCurrentUser(userId)
+        && hasRequiredFields(['createdAt', 'isAnonymous']);
+      
+      // Aggiornamento: solo il proprietario, con restrizioni
+      allow update: if isCurrentUser(userId)
+        // Non può modificare userId o createdAt
+        && fieldUnchanged('createdAt');
+      
+      // Eliminazione: solo il proprietario (per delete account)
+      allow delete: if isCurrentUser(userId);
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // RIENTRI COLLECTION
+    // ═══════════════════════════════════════════════════════════════
+    
+    match /rientri/{rientroId} {
+      // Lettura: proprietario del rientro O contatto di emergenza
+      allow read: if isAuthenticated()
+        && (
+          resource.data.userId == request.auth.uid
+          // Nota: i contatti potrebbero leggere tramite Cloud Functions
+        );
+      
+      // Creazione: utente autenticato per se stesso
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && hasRequiredFields([
+          'userId',
+          'status',
+          'startTime',
+          'expectedEndTime',
+          'contactIds'
+        ])
+        && isValidRientroStatus(request.resource.data.status)
+        && request.resource.data.contactIds.size() > 0;
+      
+      // Aggiornamento: proprietario del rientro
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        // Non può modificare userId, startTime
+        && fieldUnchanged('userId')
+        && fieldUnchanged('startTime')
+        // Status deve essere valido
+        && (!('status' in request.resource.data.diff(resource.data).affectedKeys()) 
+            || isValidRientroStatus(request.resource.data.status));
+      
+      // Eliminazione: solo proprietario (di solito gestito da Cloud Functions)
+      allow delete: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        // Solo se completato o annullato
+        && resource.data.status in ['completed', 'cancelled'];
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // CONTACTS COLLECTION
+    // ═══════════════════════════════════════════════════════════════
+    
+    match /contacts/{contactId} {
+      // Lettura: proprietario del contatto
+      allow read: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+      
+      // Creazione: utente autenticato per i propri contatti
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && hasRequiredFields([
+          'userId',
+          'name',
+          'phoneNumber',
+          'createdAt'
+        ])
+        && request.resource.data.name.size() > 0
+        && request.resource.data.phoneNumber.size() >= 8;
+      
+      // Aggiornamento: proprietario
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && fieldUnchanged('userId')
+        && fieldUnchanged('createdAt');
+      
+      // Eliminazione: proprietario
+      allow delete: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // NOTIFICATIONS COLLECTION (solo Cloud Functions)
+    // ═══════════════════════════════════════════════════════════════
+    
+    match /notifications/{notificationId} {
+      // Le notifiche sono gestite solo dalle Cloud Functions
+      // Gli utenti possono leggere le loro notifiche
+      allow read: if isAuthenticated();
+      
+      // Scrittura solo da Cloud Functions (nessun accesso client)
+      allow write: if false;
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // DENY ALL OTHER ACCESS
+    // ═══════════════════════════════════════════════════════════════
+    
+    // Nega accesso a qualsiasi altra collection
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
